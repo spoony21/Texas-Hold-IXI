@@ -14,20 +14,48 @@
     <div class="lobby-topbar">
         <button class="btn-icon" onclick="SpixiAppSdk.back()">✕ Leave</button>
     </div>
-    <div class="lobby-title">♠ Texas Hold'em ♠</div>
-    <div class="lobby-subtitle">Powered by Spixi · Ixian Network</div>
 
-    <div class="lobby-card">
-        <h3>Players at the table</h3>
-        <ul id="lobby-players">
-            <li><span class="player-dot"></span> Waiting for players… <span class="chip-count">—</span></li>
-        </ul>
+    <div class="lobby-logo">
+        <div class="lobby-logo-icon">♠</div>
+        <div class="lobby-title">Texas <span>Hold'em</span></div>
+        <div class="lobby-subtitle">Built on Ixian · Powered by Spixi</div>
     </div>
 
-    <button id="btn-start" class="btn-primary" onclick="GameProtocol.startGame()" style="display:none">
-        ▶ Start Game
-    </button>
-    <p id="wait-msg">Waiting for the host to start…</p>
+    <div class="lobby-card">
+        <div class="lobby-card-header">
+            <h3>At the table</h3>
+            <span id="lobby-count" class="lobby-count">1 / 6 players</span>
+        </div>
+        <ul id="lobby-players"></ul>
+        <div id="lobby-log"></div>
+    </div>
+
+    <!-- Host controls -->
+    <div id="host-controls" class="lobby-actions" style="display:none">
+        <button id="btn-add-bot" class="btn-secondary" onclick="App.addBot()">🤖 Add Bot</button>
+        <button class="btn-secondary btn-invite" onclick="App.showInvite()">👥 Invite Player</button>
+        <button id="btn-start" class="btn-primary" onclick="GameProtocol.startGame()">▶  Start Game</button>
+    </div>
+
+    <!-- Guest controls -->
+    <div id="guest-controls" class="lobby-actions" style="display:none">
+        <button class="btn-secondary btn-invite" onclick="App.showInvite()">👥 Invite Player</button>
+        <p class="wait-msg">Waiting for host to start…</p>
+    </div>
+</div>
+
+<!-- ── Invite Modal ────────────────────────────────────────────────────── -->
+<div id="invite-modal">
+    <div class="modal-overlay" onclick="App.closeInvite()"></div>
+    <div class="modal-box">
+        <h3>Invite a Player</h3>
+        <p>Share your Ixian address. They need to add you in Spixi and open this game from your chat.</p>
+        <div class="address-display" id="invite-address">—</div>
+        <div class="modal-buttons">
+            <button id="btn-copy-addr" class="btn-primary" onclick="App.copyAddress()">Copy Address</button>
+            <button class="btn-secondary" onclick="App.closeInvite()">Close</button>
+        </div>
+    </div>
 </div>
 
 <!-- ── Game Screen ────────────────────────────────────────────────────── -->

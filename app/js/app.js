@@ -32,25 +32,94 @@ const App = {
     renderLobby() {
         const list = document.getElementById('lobby-players');
         if (!list) return;
+
+        const connected = Object.entries(GameProtocol.players);
+        const count = connected.length;
+        const atMax = count >= MAX_PLAYERS;
+
+        // Player list — only live players (sent JOIN)
         list.innerHTML = '';
-        for (const [addr, p] of Object.entries(GameProtocol.players)) {
+        for (const [addr, p] of connected) {
+            const isMe = addr === GameProtocol.myAddress;
+            const isHost = addr === GameProtocol.hostAddress;
+            const isBot = p.isBot;
             const li = document.createElement('li');
-            li.innerHTML = `<span class="player-dot"></span> ${p.name} <span class="chip-count">${p.stack} chips</span>`;
+            let badges = '';
+            if (isHost) badges += ' <span class="badge badge-host">HOST</span>';
+            if (isMe) badges += ' <span class="badge badge-you">YOU</span>';
+            if (isBot) badges += ' <span class="badge badge-bot">BOT</span>';
+            li.innerHTML = `<span class="player-dot${isBot ? ' bot-dot' : ''}"></span>${p.name}${badges}<span class="chip-count">${p.stack}</span>`;
             list.appendChild(li);
         }
+
+        document.getElementById('lobby-count').textContent = `${count} / ${MAX_PLAYERS} players`;
+
+        // Host controls
+        const hostControls = document.getElementById('host-controls');
+        const guestControls = document.getElementById('guest-controls');
+        if (hostControls) hostControls.style.display = GameProtocol.isHost ? 'flex' : 'none';
+        if (guestControls) guestControls.style.display = GameProtocol.isHost ? 'none' : 'flex';
+
+        // Start button — host only, needs ≥2 players
         const startBtn = document.getElementById('btn-start');
         if (startBtn) {
-            startBtn.style.display = GameProtocol.isHost ? 'block' : 'none';
+            const canStart = count >= 2;
+            startBtn.disabled = !canStart;
+            startBtn.textContent = canStart ? `▶  Start Game` : `▶  Need ${2 - count} more player${2 - count !== 1 ? 's' : ''}`;
         }
-        const waitMsg = document.getElementById('wait-msg');
-        if (waitMsg) {
-            waitMsg.style.display = GameProtocol.isHost ? 'none' : 'block';
-        }
+
+        // Add bot button — host only, not at max
+        const addBotBtn = document.getElementById('btn-add-bot');
+        if (addBotBtn) addBotBtn.disabled = atMax;
+
+        // Invite button — both host and guest, not at max
+        document.querySelectorAll('.btn-invite').forEach(b => {
+            b.disabled = atMax;
+            b.textContent = atMax ? '🚫 Table Full' : '👥 Invite Player';
+        });
     },
 
     onPlayerJoined(addr) {
         this.renderLobby();
-        this.addLog(`${GameProtocol.players[addr]?.name || 'Player'} joined the table`);
+        const p = GameProtocol.players[addr];
+        const label = p?.isBot ? `${p.name} joined as a bot` : `${p?.name || GameProtocol._shortAddr(addr)} joined the table`;
+        this.addLobbyLog(label);
+    },
+
+    addLobbyLog(text) {
+        const el = document.getElementById('lobby-log');
+        if (!el) return;
+        const div = document.createElement('div');
+        div.className = 'lobby-log-entry';
+        div.textContent = text;
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+    },
+
+    // ─── Invite modal ────────────────────────────────────────────────────────
+
+    showInvite() {
+        const modal = document.getElementById('invite-modal');
+        if (!modal) return;
+        document.getElementById('invite-address').textContent = GameProtocol.myAddress || '—';
+        modal.classList.add('open');
+    },
+
+    closeInvite() {
+        document.getElementById('invite-modal')?.classList.remove('open');
+    },
+
+    copyAddress() {
+        const addr = GameProtocol.myAddress;
+        if (!addr) return;
+        navigator.clipboard?.writeText(addr).then(() => {
+            const btn = document.getElementById('btn-copy-addr');
+            if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = 'Copy Address', 2000); }
+        });
+    },
+
+    addBot() {
+        GameProtocol.addBot();
     },
 
     // ─── Game started ────────────────────────────────────────────────────────
@@ -93,10 +162,8 @@ const App = {
             document.getElementById('raise-slider').max = myStack;
             document.getElementById('raise-slider').value = Math.min(callAmount + BIG_BLIND, myStack);
             this.updateRaiseDisplay();
-            this.highlightCurrentPlayer(addr);
-        } else {
-            this.highlightCurrentPlayer(addr);
         }
+        this.renderTable();
     },
 
     onPlayerAction(addr, action, amount) {
@@ -152,20 +219,24 @@ const App = {
         const container = document.getElementById('player-seats');
         if (!container) return;
         container.innerHTML = '';
-        const players = GameProtocol.allAddresses.filter(a => a !== this.myAddress && GameProtocol.players[a]);
-        const total = players.length;
 
-        players.forEach((addr, i) => {
+        const others = Object.keys(GameProtocol.players).filter(a => a !== this.myAddress);
+        const total = others.length;
+
+        others.forEach((addr, i) => {
             const p = GameProtocol.players[addr];
-            const angle = (i / total) * Math.PI; // top half arc
-            const x = 50 + 42 * Math.cos(Math.PI + angle * (total > 1 ? 1 : 0));
-            const y = 20 + 35 * Math.sin(Math.PI + angle * (total > 1 ? 1 : 0));
+            const angle = (i / Math.max(total, 1)) * Math.PI;
+            const x = 50 + 42 * Math.cos(Math.PI + angle);
+            const y = 22 + 32 * Math.sin(Math.PI + angle);
 
             const seat = document.createElement('div');
-            seat.className = 'seat' + (p.folded ? ' folded' : '') + (addr === GameProtocol.currentTurnAddr ? ' active-seat' : '');
+            seat.className = 'seat'
+                + (p.folded ? ' folded' : '')
+                + (addr === GameProtocol.currentTurnAddr ? ' active-seat' : '');
             seat.style.left = `${x}%`;
             seat.style.top = `${y}%`;
 
+            const isHost = addr === GameProtocol.hostAddress;
             const cards = GameProtocol.revealedHands[addr]
                 ? GameProtocol.revealedHands[addr].map(c => PokerEngine.cardHTML(c)).join('')
                 : (!p.folded ? '<div class="card face-down sm">🂠</div><div class="card face-down sm">🂠</div>' : '');
@@ -173,7 +244,7 @@ const App = {
             seat.innerHTML = `
                 <div class="seat-cards">${cards}</div>
                 <div class="seat-info">
-                    <div class="seat-name">${p.name}${addr === GameProtocol.allAddresses[0] ? ' 👑' : ''}</div>
+                    <div class="seat-name">${p.name}${isHost ? ' 👑' : ''}${p.isBot ? ' 🤖' : ''}</div>
                     <div class="seat-stack">${p.stack}${p.bet > 0 ? ` <span class="bet-chip">${p.bet}</span>` : ''}</div>
                     ${p.folded ? '<div class="folded-label">FOLDED</div>' : ''}
                     ${p.allIn ? '<div class="allin-label">ALL IN</div>' : ''}
@@ -181,19 +252,12 @@ const App = {
             container.appendChild(seat);
         });
 
-        // My bet display
         const myBet = GameProtocol.players[this.myAddress]?.bet || 0;
         const myStack = GameProtocol.players[this.myAddress]?.stack || 0;
         const myInfo = document.getElementById('my-info');
         if (myInfo) {
             myInfo.innerHTML = `${myStack} chips${myBet > 0 ? ` <span class="bet-chip">${myBet}</span>` : ''}`;
         }
-    },
-
-    highlightCurrentPlayer(addr) {
-        document.querySelectorAll('.seat').forEach(s => s.classList.remove('active-seat'));
-        // Find and highlight the seat (renderTable handles this via class)
-        this.renderTable();
     },
 
     showResult(winner, amount, handName) {
@@ -205,9 +269,9 @@ const App = {
 
     // ─── Actions ─────────────────────────────────────────────────────────────
 
-    fold() { GameProtocol.sendAction(ACTION.FOLD); document.getElementById('actions').style.display = 'none'; },
+    fold()  { GameProtocol.sendAction(ACTION.FOLD);  document.getElementById('actions').style.display = 'none'; },
     check() { GameProtocol.sendAction(ACTION.CHECK); document.getElementById('actions').style.display = 'none'; },
-    call() { GameProtocol.sendAction(ACTION.CALL, this.actionCallAmount); document.getElementById('actions').style.display = 'none'; },
+    call()  { GameProtocol.sendAction(ACTION.CALL, this.actionCallAmount); document.getElementById('actions').style.display = 'none'; },
     raise() {
         const amount = parseInt(document.getElementById('raise-slider').value, 10);
         GameProtocol.sendAction(ACTION.RAISE, amount);
@@ -244,12 +308,9 @@ const App = {
         div.innerHTML = `<b>${name}:</b> ${text}`;
         log.appendChild(div);
         log.scrollTop = log.scrollHeight;
-        // Flash chat button
         document.getElementById('btn-chat')?.classList.add('flash');
         setTimeout(() => document.getElementById('btn-chat')?.classList.remove('flash'), 1000);
     },
-
-    // ─── Log ─────────────────────────────────────────────────────────────────
 
     addLog(text) {
         const log = document.getElementById('game-log');

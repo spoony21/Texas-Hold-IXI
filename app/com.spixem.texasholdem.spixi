@@ -1,13 +1,13 @@
 caVersion = 0
 id = com.spixem.texasholdem
 publisher = spoony
-name = Spix'em
-version = 1.0.0
+name = IXI Poker
+version = 1.0.1
 capabilities = multiUser
 image = com.spixem.texasholdem.png
 minUsers = 2
 maxUsers = 6
 protocols = 
 contentUrl = com.spixem.texasholdem.zspixiapp
-checksum = 83fd5c9a49821cbca66fe60813ec302c4aa731378d51e8dbc5a2e534535c9175
-contentSize = 35011
+checksum = ff028901bcf648cedbbfc3e65ff89460ddaf0a4023da329f429b95f371e8e3b3
+contentSize = 36141
