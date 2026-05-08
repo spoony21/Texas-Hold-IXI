@@ -8,6 +8,6 @@ image = com.spixem.texasholdem.png
 minUsers = 2
 maxUsers = 6
 protocols = 
-contentUrl = https://github.com/spoony21/Spixem/archive/refs/tags/v1.0.0.zip
+contentUrl = com.spixem.texasholdem.zspixiapp
 checksum = 83fd5c9a49821cbca66fe60813ec302c4aa731378d51e8dbc5a2e534535c9175
 contentSize = 35011
