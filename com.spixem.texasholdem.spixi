@@ -1,7 +1,7 @@
 caVersion = 0
 id = com.spixem.texasholdem
 publisher = spoony
-name = IXIPoker
+name = IXI Poker
 version = 1.0.1
 capabilities = multiUser
 image = com.spixem.texasholdem.png
