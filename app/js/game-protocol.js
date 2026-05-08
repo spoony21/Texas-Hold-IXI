@@ -17,9 +17,11 @@ const MAX_PLAYERS = 6;
 const GameProtocol = {
     myAddress: null,
     sessionId: null,
+    joinedAt: null,       // UTC ms when this client launched — used for host election
     allAddresses: [],    // everyone in Spixi session (from onInit)
     isHost: false,
     hostAddress: null,
+    _lobbyInterval: null,
 
     phase: PHASE.LOBBY,
     players: {},         // only those who sent JOIN — the live list
@@ -38,28 +40,36 @@ const GameProtocol = {
     init(sessionId, myAddress, remoteAddresses) {
         this.sessionId = sessionId;
         this.myAddress = myAddress;
+        this.joinedAt = Date.now();
         this.allAddresses = [myAddress, ...remoteAddresses];
 
         // Only add yourself to the live player list immediately
         this.players[myAddress] = {
             name: this._shortAddr(myAddress),
             stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
-            seatIndex: 0, connected: true, isBot: false
+            seatIndex: 0, connected: true, isBot: false,
+            joinedAt: this.joinedAt
         };
 
-        // If alone when app opens, claim host
-        if (remoteAddresses.length === 0) {
-            this.isHost = true;
-            this.hostAddress = myAddress;
-        }
+        // Tentatively I'm host until someone with an earlier timestamp proves otherwise
+        this.isHost = true;
+        this.hostAddress = myAddress;
 
-        // Announce presence (claimHost flag so others know who opened first)
-        this._send({
-            type: MSG.JOIN,
-            address: myAddress,
-            name: this.players[myAddress].name,
-            claimHost: this.isHost
-        });
+        // Broadcast presence immediately, then every 3 s while in lobby
+        // (Starwind Arena pattern — no reply chain, just periodic heartbeat)
+        const sendLobbyJoin = () => {
+            this._send({
+                type: MSG.JOIN,
+                address: this.myAddress,
+                name: this.players[this.myAddress]?.name,
+                joinedAt: this.joinedAt
+            });
+        };
+        sendLobbyJoin();
+        this._lobbyInterval = setInterval(() => {
+            if (this.phase === PHASE.LOBBY) { sendLobbyJoin(); }
+            else { clearInterval(this._lobbyInterval); this._lobbyInterval = null; }
+        }, 3000);
     },
 
     // Only host can start
@@ -181,13 +191,12 @@ const GameProtocol = {
     },
 
     _nextActiveInOrder() {
-        const start = this.actionIndex;
         for (let i = 0; i < this.actionOrder.length; i++) {
-            const idx = (start + i) % this.actionOrder.length;
+            const idx = (this.actionIndex + i) % this.actionOrder.length;
             const addr = this.actionOrder[idx];
             if (!this.players[addr]?.folded && !this.players[addr]?.allIn) {
                 this.actionIndex = (idx + 1) % this.actionOrder.length;
-                if (i > 0 || this.actionIndex !== 0) return addr;
+                return addr;
             }
         }
         return null;
@@ -339,33 +348,29 @@ const GameProtocol = {
 
         switch (msg.type) {
             case MSG.JOIN: {
-                // First claimHost received wins
-                if (msg.claimHost && !this.hostAddress) {
-                    this.hostAddress = msg.address;
-                    this.isHost = (msg.address === this.myAddress);
-                }
+                // Skip our own echoed messages
+                if (msg.address === this.myAddress) break;
+
                 // Add to allAddresses if new
                 if (!this.allAddresses.includes(msg.address)) {
                     this.allAddresses.push(msg.address);
                 }
-                // Add to live player list
+                // Only add to the live player list when JOIN actually arrives
                 if (!this.players[msg.address]) {
                     this.players[msg.address] = {
                         name: msg.name || this._shortAddr(msg.address),
                         stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
                         seatIndex: Object.keys(this.players).length,
-                        connected: true, isBot: false
+                        connected: true, isBot: false,
+                        joinedAt: msg.joinedAt ?? null
                     };
+                    if (typeof App !== 'undefined') App.onPlayerJoined(msg.address);
+                } else if (msg.joinedAt && !this.players[msg.address].joinedAt) {
+                    this.players[msg.address].joinedAt = msg.joinedAt;
                 }
-                // Reply so late arrivals see us
-                if (msg.address !== this.myAddress) {
-                    this._send({
-                        type: MSG.JOIN, address: this.myAddress,
-                        name: this.players[this.myAddress]?.name,
-                        claimHost: this.isHost
-                    });
-                }
-                if (typeof App !== 'undefined') App.onPlayerJoined(msg.address);
+
+                // Re-elect host: player with the earliest joinedAt wins (tie → lower address)
+                this._electHost();
                 break;
             }
 
@@ -387,6 +392,7 @@ const GameProtocol = {
 
             case MSG.START:
                 if (this.phase !== PHASE.LOBBY) break;
+                clearInterval(this._lobbyInterval); this._lobbyInterval = null;
                 this.phase = PHASE.PREFLOP;
                 this.hostAddress = msg.host || senderAddr;
                 this.isHost = (this.hostAddress === this.myAddress);
@@ -518,6 +524,24 @@ const GameProtocol = {
 
     _send(msg) {
         SpixiAppSdk.sendNetworkData(JSON.stringify(msg));
+    },
+
+    _electHost() {
+        let bestAddr = null, bestTime = Infinity;
+        for (const [addr, p] of Object.entries(this.players)) {
+            if (p.isBot) continue;
+            const t = p.joinedAt ?? Infinity;
+            if (t < bestTime || (t === bestTime && (bestAddr === null || addr < bestAddr))) {
+                bestTime = t;
+                bestAddr = addr;
+            }
+        }
+        if (!bestAddr) return;
+        if (bestAddr !== this.hostAddress) {
+            this.hostAddress = bestAddr;
+            this.isHost = (bestAddr === this.myAddress);
+            if (typeof App !== 'undefined') App.renderLobby();
+        }
     },
 
     _shortAddr(addr) {

@@ -54,11 +54,14 @@ const App = {
 
         document.getElementById('lobby-count').textContent = `${count} / ${MAX_PLAYERS} players`;
 
-        // Host controls
+        // Only show host controls once host is confirmed (hostAddress is set)
+        // isHost alone can be true on both devices during the race — wait for tiebreak
+        const hostConfirmed = GameProtocol.hostAddress !== null;
+        const iAmHost = GameProtocol.isHost && hostConfirmed;
         const hostControls = document.getElementById('host-controls');
         const guestControls = document.getElementById('guest-controls');
-        if (hostControls) hostControls.style.display = GameProtocol.isHost ? 'flex' : 'none';
-        if (guestControls) guestControls.style.display = GameProtocol.isHost ? 'none' : 'flex';
+        if (hostControls) hostControls.style.display = iAmHost ? 'flex' : 'none';
+        if (guestControls) guestControls.style.display = iAmHost ? 'none' : 'flex';
 
         // Start button — host only, needs ≥2 players
         const startBtn = document.getElementById('btn-start');
@@ -99,10 +102,17 @@ const App = {
     // ─── Invite modal ────────────────────────────────────────────────────────
 
     showInvite() {
-        const modal = document.getElementById('invite-modal');
-        if (!modal) return;
-        document.getElementById('invite-address').textContent = GameProtocol.myAddress || '—';
-        modal.classList.add('open');
+        const isSpixi = /Spixi|ixian/i.test(navigator.userAgent);
+        if (isSpixi) {
+            // Trigger the native Spixi contact picker / invite flow
+            setTimeout(() => { location.href = 'ixian:invite'; }, 0);
+        } else {
+            // Browser fallback — show address copy modal
+            const modal = document.getElementById('invite-modal');
+            if (!modal) return;
+            document.getElementById('invite-address').textContent = GameProtocol.myAddress || '—';
+            modal.classList.add('open');
+        }
     },
 
     closeInvite() {
