@@ -9,5 +9,5 @@ minUsers = 2
 maxUsers = 6
 protocols = 
 contentUrl = com.spixem.texasholdem.zspixiapp
-checksum = ff028901bcf648cedbbfc3e65ff89460ddaf0a4023da329f429b95f371e8e3b3
+checksum = 5ff4751d9f0509745b3ea32f0f469f93c4fae2f2d14500473520bed14617ca99
 contentSize = 36141
