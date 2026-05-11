@@ -1,16 +1,32 @@
 // Browser testing mock for Spixi SDK
-// Activates automatically when running outside the Spixi app
-// Starts you alone as host — use "Add Bot" to add AI opponents
+// - Solo mode  (1 tab):  add bots via "Add Bot" button
+// - Multi-tab mode (2+ tabs): open the same URL in multiple tabs.
+//   Each tab gets a unique mock address and messages route via BroadcastChannel.
+//   No Spixi app or Ixian blockchain required.
 
 (function() {
     const isSpixi = /Spixi|ixian/i.test(navigator.userAgent);
     if (isSpixi) return;
 
-    console.log('[MockSDK] Browser mode active');
+    // --- Unique address per tab ---
+    // Persist in sessionStorage so reloads keep the same address within a tab.
+    let MY_ADDRESS = sessionStorage.getItem('mock_address');
+    if (!MY_ADDRESS) {
+        const rand = Math.random().toString(36).slice(2, 10).toUpperCase();
+        MY_ADDRESS = 'ixian1MOCK' + rand + '0000000000000000000000000000';
+        sessionStorage.setItem('mock_address', MY_ADDRESS);
+    }
 
-    const MY_ADDRESS = 'ixian1MMMM0000000000000000000000000000000000';
+    // Shared session ID — all tabs on the same origin join the same session.
+    const SESSION_ID = 'mock-session-browser';
 
-    // Patch spixiAction to route internally instead of navigating
+    // BroadcastChannel for cross-tab message routing
+    const channel = new BroadcastChannel('spixi_mock_' + SESSION_ID);
+
+    console.log('[MockSDK] Browser mode active. Address:', MY_ADDRESS);
+    console.log('[MockSDK] Open this page in another tab to test multiplayer.');
+
+    // --- Patch spixiAction ---
     SpixiAppSdk.spixiAction = function(actionData, useRequestId = true) {
         let reqId = null;
         let promise;
@@ -28,9 +44,14 @@
     const MockBus = {
         handle(action, reqId) {
             if (action.c === 'ds') {
-                // Network send — no real peers in mock mode
-                // game-protocol._broadcast already calls handleMessage locally
-                // Private messages to bot addresses are ignored (host handles bots directly)
+                // Route outbound network messages to other tabs via BroadcastChannel.
+                // If action.r is set this is a private message (only the target tab
+                // should deliver it); otherwise it's a broadcast to all peers.
+                channel.postMessage({
+                    from: MY_ADDRESS,
+                    to: action.r || null,  // null = broadcast
+                    data: action.d
+                });
             } else if (action.c === 'getStorage') {
                 const val = localStorage.getItem(`spixi_${action.t}_${action.k}`);
                 SpixiAppSdk.ar({ id: reqId, r: val ? btoa(val) : 'null' });
@@ -41,10 +62,16 @@
         }
     };
 
-    // Fire init after short delay — no remote addresses so you become host automatically
-    setTimeout(() => {
-        SpixiAppSdk.onInit('mock-session-001', MY_ADDRESS);
-    }, 300);
+    // Deliver incoming cross-tab messages to this tab's SDK handler
+    channel.onmessage = (event) => {
+        const { from, to, data } = event.data;
+        if (from === MY_ADDRESS) return;           // ignore own echoes
+        if (to && to !== MY_ADDRESS) return;       // private message for someone else
+        SpixiAppSdk.onNetworkData(from, data);
+    };
 
-    console.log('[MockSDK] You are:', MY_ADDRESS);
+    // Fire onInit — no remoteAddresses needed; peers discover each other via JOIN heartbeat
+    setTimeout(() => {
+        SpixiAppSdk.onInit(SESSION_ID, MY_ADDRESS);
+    }, 300);
 })();

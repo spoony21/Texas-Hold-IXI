@@ -102,17 +102,20 @@ const App = {
     // ─── Invite modal ────────────────────────────────────────────────────────
 
     showInvite() {
-        const isSpixi = /Spixi|ixian/i.test(navigator.userAgent);
-        if (isSpixi) {
-            // Trigger the native Spixi contact picker / invite flow
-            setTimeout(() => { location.href = 'ixian:invite'; }, 0);
-        } else {
-            // Browser fallback — show address copy modal
-            const modal = document.getElementById('invite-modal');
-            if (!modal) return;
-            document.getElementById('invite-address').textContent = GameProtocol.myAddress || '—';
-            modal.classList.add('open');
+        const modal = document.getElementById('invite-modal');
+        if (!modal) return;
+        const input = document.getElementById('invite-address');
+        if (input) {
+            input.value = GameProtocol.myAddress || '—';
         }
+        // Reset copy state
+        const btn = document.getElementById('btn-copy-addr');
+        if (btn) { btn.textContent = 'Copy'; btn.classList.remove('copied'); }
+        const feedback = document.getElementById('invite-copy-feedback');
+        if (feedback) feedback.textContent = '';
+        modal.classList.add('open');
+        // Auto-select address so user can copy manually if clipboard API is unavailable
+        setTimeout(() => input?.select(), 80);
     },
 
     closeInvite() {
@@ -121,11 +124,52 @@ const App = {
 
     copyAddress() {
         const addr = GameProtocol.myAddress;
-        if (!addr) return;
-        navigator.clipboard?.writeText(addr).then(() => {
-            const btn = document.getElementById('btn-copy-addr');
-            if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = 'Copy Address', 2000); }
-        });
+        if (!addr || addr === '—') return;
+
+        const btn = document.getElementById('btn-copy-addr');
+        const feedback = document.getElementById('invite-copy-feedback');
+
+        const onSuccess = () => {
+            if (btn) { btn.textContent = '✓ Done'; btn.classList.add('copied'); }
+            if (feedback) feedback.textContent = '✓ Address copied to clipboard';
+            // Reset after 2.5 s so user can copy again
+            setTimeout(() => {
+                if (btn) { btn.textContent = 'Copy'; btn.classList.remove('copied'); }
+                if (feedback) feedback.textContent = '';
+            }, 2500);
+        };
+
+        const onFail = () => {
+            // Fallback: select the input so the user can copy manually
+            const input = document.getElementById('invite-address');
+            input?.select();
+            if (feedback) feedback.textContent = 'Select all + copy manually';
+        };
+
+        // 1. Modern async clipboard (works in most browsers)
+        if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(addr).then(onSuccess).catch(() => {
+                // 2. execCommand fallback (works in WebViews that block navigator.clipboard)
+                this._execCommandCopy(addr) ? onSuccess() : onFail();
+            });
+        } else {
+            // 2. execCommand fallback directly
+            this._execCommandCopy(addr) ? onSuccess() : onFail();
+        }
+    },
+
+    _execCommandCopy(text) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+        ta.setAttribute('readonly', '');
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+        return ok;
     },
 
     addBot() {

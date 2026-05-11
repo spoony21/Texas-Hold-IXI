@@ -48,13 +48,24 @@
 <div id="invite-modal">
     <div class="modal-overlay" onclick="App.closeInvite()"></div>
     <div class="modal-box">
-        <h3>Invite a Player</h3>
-        <p>Share your Ixian address. They need to add you in Spixi and open this game from your chat.</p>
-        <div class="address-display" id="invite-address">—</div>
-        <div class="modal-buttons">
-            <button id="btn-copy-addr" class="btn-primary" onclick="App.copyAddress()">Copy Address</button>
-            <button class="btn-secondary" onclick="App.closeInvite()">Close</button>
+        <div class="invite-header">
+            <h3>👥 Invite a Player</h3>
+            <button class="btn-icon invite-close-btn" onclick="App.closeInvite()">✕</button>
         </div>
+        <p>Share your Ixian address. They need to add you as a contact in Spixi, then open this game from your chat.</p>
+        <div class="invite-address-wrap">
+            <input type="text" id="invite-address" class="invite-address-input" readonly
+                onclick="this.select()" />
+            <button id="btn-copy-addr" class="invite-copy-btn" onclick="App.copyAddress()">Copy</button>
+        </div>
+        <div id="invite-copy-feedback" class="invite-feedback"></div>
+        <div class="invite-divider"></div>
+        <div class="invite-steps">
+            <div class="invite-step"><span class="step-num">1</span>Copy your address above</div>
+            <div class="invite-step"><span class="step-num">2</span>Send it to the person you want to invite</div>
+            <div class="invite-step"><span class="step-num">3</span>They add you in Spixi &amp; open this game</div>
+        </div>
+        <button class="btn-primary" onclick="App.closeInvite()" style="margin-top:4px">Done</button>
     </div>
 </div>
 

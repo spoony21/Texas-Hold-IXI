@@ -135,14 +135,20 @@ const GameProtocol = {
             bets[addr] = this.players[addr].bet;
         }
 
-        this._broadcast({
+        const startMsg = {
             type: MSG.START,
             host: this.myAddress,
             dealer: activePlayers[this.dealerIndex],
             sb: sbAddr, bb: bbAddr,
             players: activePlayers,
             stacks, bets, pot: this.pot
-        });
+        };
+        this._broadcast(startMsg);
+
+        // The host set phase = PREFLOP above, so the local broadcast echo is
+        // filtered by the "if phase !== LOBBY" guard in handleMessage. Trigger
+        // the host's own UI transition directly here instead.
+        if (typeof App !== 'undefined') App.onGameStarted(startMsg);
 
         this.actionOrder = this._bettingOrder(activePlayers, (bbIndex + 1) % activePlayers.length);
         this.actionIndex = 0;
@@ -355,8 +361,11 @@ const GameProtocol = {
                 if (!this.allAddresses.includes(msg.address)) {
                     this.allAddresses.push(msg.address);
                 }
+
+                const isNewPlayer = !this.players[msg.address];
+
                 // Only add to the live player list when JOIN actually arrives
-                if (!this.players[msg.address]) {
+                if (isNewPlayer) {
                     this.players[msg.address] = {
                         name: msg.name || this._shortAddr(msg.address),
                         stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
@@ -365,6 +374,15 @@ const GameProtocol = {
                         joinedAt: msg.joinedAt ?? null
                     };
                     if (typeof App !== 'undefined') App.onPlayerJoined(msg.address);
+
+                    // Reply immediately so the joining peer sees us without waiting for the
+                    // next 3-second heartbeat (mirrors Starwind Arena's reply-on-receive pattern)
+                    this._send({
+                        type: MSG.JOIN,
+                        address: this.myAddress,
+                        name: this.players[this.myAddress]?.name,
+                        joinedAt: this.joinedAt
+                    });
                 } else if (msg.joinedAt && !this.players[msg.address].joinedAt) {
                     this.players[msg.address].joinedAt = msg.joinedAt;
                 }
