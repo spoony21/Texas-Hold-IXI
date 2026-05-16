@@ -63,12 +63,20 @@ const App = {
         if (hostControls) hostControls.style.display = iAmHost ? 'flex' : 'none';
         if (guestControls) guestControls.style.display = iAmHost ? 'none' : 'flex';
 
-        // Start button — host only, needs ≥2 players
+        // Start button — host only, needs ≥2 total (humans + bots)
         const startBtn = document.getElementById('btn-start');
         if (startBtn) {
-            const canStart = count >= 2;
+            const humanCount = Object.values(GameProtocol.players).filter(p => !p.isBot).length;
+            const botCount   = Object.values(GameProtocol.players).filter(p => p.isBot).length;
+            const canStart   = count >= 2;
             startBtn.disabled = !canStart;
-            startBtn.textContent = canStart ? `▶  Start Game` : `▶  Need ${2 - count} more player${2 - count !== 1 ? 's' : ''}`;
+            if (canStart) {
+                startBtn.textContent = '▶  Start Game';
+            } else if (humanCount === 1 && botCount === 0) {
+                startBtn.textContent = '▶  Add a bot or invite a player';
+            } else {
+                startBtn.textContent = `▶  Need ${2 - count} more player${2 - count !== 1 ? 's' : ''}`;
+            }
         }
 
         // Add bot button — host only, not at max
@@ -176,10 +184,74 @@ const App = {
         GameProtocol.addBot();
     },
 
+    confirmLeave() {
+        if (confirm('Leave the game? Your remaining chips will go into the pot.')) {
+            GameProtocol.leaveGame();
+        }
+    },
+
+    leaveGame() {
+        GameProtocol.leaveGame();
+    },
+
+    onGameOver(winnerAddr) {
+        const name = winnerAddr
+            ? (GameProtocol.players[winnerAddr]?.name || GameProtocol._shortAddr(winnerAddr))
+            : null;
+        document.getElementById('result-banner')?.classList.remove('show');
+        this.showScreen('lobby');
+        this.renderLobby();
+        this.addLobbyLog(name ? `🏆 ${name} wins the game! Starting fresh…` : 'Game over. Starting fresh…');
+    },
+
+    // ─── Chip rendering ──────────────────────────────────────────────────────
+
+    renderChipStack(amount) {
+        if (!amount || amount <= 0) return '';
+
+        const denoms = [
+            { cls: 'chip-gold',   value: 500 },
+            { cls: 'chip-blue',   value: 100 },
+            { cls: 'chip-purple', value: 25  },
+            { cls: 'chip-green',  value: 5   },
+            { cls: 'chip-white',  value: 1   },
+        ];
+
+        let remaining = amount;
+        let towers = '';
+        const spacing = 7;   // px between chips in a stack
+        const chipH   = 20;  // chip diameter
+
+        for (const d of denoms) {
+            const count = Math.floor(remaining / d.value);
+            if (count < 1) continue;
+
+            const stack = Math.min(count, 6);
+            const towerH = chipH + (stack - 1) * spacing;
+            let discs = '';
+            for (let i = 0; i < stack; i++) {
+                discs += `<div class="chip-disc ${d.cls}" style="bottom:${i * spacing}px"></div>`;
+            }
+            towers += `<div class="chip-tower" style="height:${towerH}px">${discs}</div>`;
+            remaining -= count * d.value;
+            if (remaining <= 0) break;
+        }
+
+        return `<div class="chip-pile">${towers}<span class="chip-pile-label">${amount}</span></div>`;
+    },
+
+    _updatePot(pot) {
+        const text = document.getElementById('pot-text');
+        const chips = document.getElementById('pot-chips');
+        if (text)  text.textContent = `Pot: ${pot}`;
+        if (chips) chips.innerHTML  = pot > 0 ? this.renderChipStack(pot) : '';
+    },
+
     // ─── Game started ────────────────────────────────────────────────────────
 
     onGameStarted(msg) {
         this.showScreen('game');
+        this._updatePot(0);
         this.renderTable();
         this.addLog(`New hand — Dealer: ${GameProtocol._shortAddr(msg.dealer)}`);
         document.getElementById('actions').style.display = 'none';
@@ -202,7 +274,7 @@ const App = {
 
     onActionRequest(addr, callAmount, pot, roundBet) {
         this.actionCallAmount = callAmount;
-        document.getElementById('pot-display').textContent = `Pot: ${pot}`;
+        this._updatePot(pot);
         this.renderTable();
 
         const isMyTurn = addr === this.myAddress;
@@ -229,7 +301,7 @@ const App = {
     },
 
     onStateUpdate(state) {
-        document.getElementById('pot-display').textContent = `Pot: ${state.pot}`;
+        this._updatePot(state.pot);
         this.renderTable();
     },
 
@@ -260,6 +332,7 @@ const App = {
         document.getElementById('my-cards').innerHTML = '<div class="card face-down">🂠</div><div class="card face-down">🂠</div>';
         document.getElementById('community-cards').innerHTML = '';
         document.getElementById('actions').style.display = 'none';
+        this._updatePot(0);
     },
 
     onChat(addr, text) {
@@ -279,9 +352,16 @@ const App = {
 
         others.forEach((addr, i) => {
             const p = GameProtocol.players[addr];
-            const angle = (i / Math.max(total, 1)) * Math.PI;
-            const x = 50 + 42 * Math.cos(Math.PI + angle);
-            const y = 22 + 32 * Math.sin(Math.PI + angle);
+            // Arc opponents across the top of the oval; spread widens with more players.
+            // All angles are in the upper half of the unit circle (sin < 0 in CSS coords)
+            // so y stays within the visible area.
+            const spread = Math.min(Math.PI * 0.8, Math.PI * (0.4 + (total - 1) * 0.2));
+            const startAngle = -Math.PI / 2 - spread / 2;
+            const angle = total <= 1
+                ? -Math.PI / 2
+                : startAngle + (i / (total - 1)) * spread;
+            const x = 50 + 42 * Math.cos(angle);
+            const y = 30 + 22 * Math.sin(angle);
 
             const seat = document.createElement('div');
             seat.className = 'seat'
@@ -299,18 +379,28 @@ const App = {
                 <div class="seat-cards">${cards}</div>
                 <div class="seat-info">
                     <div class="seat-name">${p.name}${isHost ? ' 👑' : ''}${p.isBot ? ' 🤖' : ''}</div>
-                    <div class="seat-stack">${p.stack}${p.bet > 0 ? ` <span class="bet-chip">${p.bet}</span>` : ''}</div>
+                    <div class="seat-stack">${p.stack}</div>
                     ${p.folded ? '<div class="folded-label">FOLDED</div>' : ''}
                     ${p.allIn ? '<div class="allin-label">ALL IN</div>' : ''}
-                </div>`;
+                </div>
+                ${p.bet > 0 ? `<div class="seat-bet-chips">${this.renderChipStack(p.bet)}</div>` : ''}`;
             container.appendChild(seat);
         });
 
-        const myBet = GameProtocol.players[this.myAddress]?.bet || 0;
+        const myBet   = GameProtocol.players[this.myAddress]?.bet   || 0;
         const myStack = GameProtocol.players[this.myAddress]?.stack || 0;
+
         const myInfo = document.getElementById('my-info');
-        if (myInfo) {
-            myInfo.innerHTML = `${myStack} chips${myBet > 0 ? ` <span class="bet-chip">${myBet}</span>` : ''}`;
+        if (myInfo) myInfo.textContent = `${myStack} chips`;
+
+        const myBetChips = document.getElementById('my-bet-chips');
+        if (myBetChips) myBetChips.innerHTML = myBet > 0 ? this.renderChipStack(myBet) : '';
+
+        // Always keep hole cards in sync with GameProtocol state.
+        // This guards against any render call that might leave #my-cards stale.
+        const myCardsEl = document.getElementById('my-cards');
+        if (myCardsEl && GameProtocol.myHoleCards.length > 0) {
+            myCardsEl.innerHTML = GameProtocol.myHoleCards.map(c => PokerEngine.cardHTML(c)).join('');
         }
     },
 

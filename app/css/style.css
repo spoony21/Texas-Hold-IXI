@@ -853,6 +853,91 @@ html, body {
     letter-spacing: 0;
 }
 
+/* ── Poker Chips ──────────────────────────────────────────────────────── */
+.chip-pile {
+    display: flex;
+    gap: 3px;
+    align-items: flex-end;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.chip-tower {
+    position: relative;
+    width: 20px;
+    flex-shrink: 0;
+}
+
+.chip-disc {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    left: 0;
+    /* Radial highlight for depth */
+    background:
+        radial-gradient(circle at 35% 30%, rgba(255,255,255,0.28) 0%, transparent 55%),
+        var(--chip-face);
+    /* Darker edge below = 3D depth */
+    box-shadow:
+        0 3px 0 var(--chip-edge),
+        0 5px 4px rgba(0,0,0,0.55);
+}
+
+/* Dashed inner ring — classic poker chip pattern */
+.chip-disc::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    border: 1.5px dashed rgba(255,255,255,0.38);
+    pointer-events: none;
+}
+
+/* Denomination colours — Ixian palette */
+.chip-white  { --chip-face: #c8c8c8; --chip-edge: #7a7a7a; }
+.chip-green  { --chip-face: #39e878; --chip-edge: #1a6b38; }   /* IXI neon  */
+.chip-purple { --chip-face: #a29bfe; --chip-edge: #5549c7; }
+.chip-blue   { --chip-face: #74b9ff; --chip-edge: #1a6da3; }
+.chip-gold   { --chip-face: #f0c040; --chip-edge: #9a7a08; }
+
+.chip-pile-label {
+    font-size: 0.58rem;
+    color: rgba(255,255,255,0.6);
+    font-family: monospace;
+    font-weight: 700;
+    white-space: nowrap;
+    align-self: center;
+    margin-left: 2px;
+}
+
+/* Chips inside opponent seats */
+.seat-bet-chips {
+    margin-top: 3px;
+    min-height: 0;
+}
+
+/* Chips for the local player — sits above the card row */
+#my-bet-chips {
+    display: flex;
+    justify-content: center;
+    min-height: 0;
+    padding-bottom: 2px;
+}
+
+/* Pot chip pile — sits above the "Pot: X" label */
+#pot-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+#pot-chips {
+    display: flex;
+    justify-content: center;
+}
+
 /* ── Scrollbars ───────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }

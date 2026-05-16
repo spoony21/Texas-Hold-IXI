@@ -4,7 +4,6 @@
 const SPX_CMD_NETWORK_DATA = "ds";
 const SPX_CMD_GET_STORAGE = "getStorage";
 const SPX_CMD_SET_STORAGE = "setStorage";
-const SPX_CMD_SEND_PAYMENT = "sendPayment";
 
 var SpixiAppSdk = {
     version: 0.51,
@@ -35,12 +34,6 @@ var SpixiAppSdk = {
 
     setStorageData: function (table, key, value) {
         return SpixiAppSdk.spixiAction({ c: SPX_CMD_SET_STORAGE, t: table, k: key, v: btoa(value) }, true);
-    },
-
-    sendPayment: async function (recipientAddress, amount) {
-        var data = { c: SPX_CMD_SEND_PAYMENT, recipients: {} };
-        data.recipients[recipientAddress] = amount;
-        return JSON.parse(await SpixiAppSdk.spixiAction(data, true));
     },
 
     spixiAction: function (actionData, useRequestId = true) {
@@ -79,6 +72,4 @@ var SpixiAppSdk = {
     onRequestAccept: function (data) {},
     onRequestReject: function (data) {},
     onAppEndSession: function (data) {},
-    onTransactionReceived: function (senderAddress, amount, txid, data, verified) {},
-    onPaymentSent: function (recipientAddress, amount, txid, data, verified) {},
 };
