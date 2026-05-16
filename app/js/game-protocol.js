@@ -569,15 +569,30 @@ const GameProtocol = {
                 this.deck = [];
                 this.actionOrder = [];
 
-                // Apply reset stacks
-                for (const [addr, stack] of Object.entries(msg.stacks || {})) {
-                    if (this.players[addr]) {
-                        this.players[addr].stack = stack;
-                        this.players[addr].bet = 0;
-                        this.players[addr].folded = false;
-                        this.players[addr].allIn = false;
-                    }
+                // Reset every known player back to a fresh stack — handles the case
+                // where losers were deleted on the host and their address is absent
+                // from msg.stacks, which would otherwise leave them stuck at 0.
+                for (const addr of Object.keys(this.players)) {
+                    this.players[addr].stack = STARTING_STACK;
+                    this.players[addr].bet = 0;
+                    this.players[addr].folded = false;
+                    this.players[addr].allIn = false;
                 }
+
+                // Re-add self if _endRound deleted us (happens when the host went bust).
+                // Without this entry, _electHost has no record of us and hands the host
+                // role to someone else, leaving everyone stuck on "Waiting for host".
+                if (!this.players[this.myAddress]) {
+                    this.players[this.myAddress] = {
+                        name: this._shortAddr(this.myAddress),
+                        stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
+                        seatIndex: 0, connected: true, isBot: false,
+                        joinedAt: this.joinedAt
+                    };
+                }
+
+                // Re-elect host now that the full player list is restored
+                this._electHost();
 
                 // Restart lobby heartbeat so everyone is discoverable again
                 const _sendJoin = () => this._send({
