@@ -1,0 +1,13 @@
+caVersion = 0
+id = com.spoony.texasholdixi
+publisher = spoony
+name = Texas Hold IXI
+version = 1.1.0
+capabilities = multiUser
+image = com.spoony.texasholdixi.png
+minUsers = 1
+maxUsers = 6
+protocols = 
+contentUrl = com.spoony.texasholdixi.zspixiapp
+checksum = d6600172b6cd378ac1e7846553dbaec37de496c9633647a94b8ca876561ff557
+contentSize = 94697

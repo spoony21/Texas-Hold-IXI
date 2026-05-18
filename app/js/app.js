@@ -1,16 +1,17 @@
-// Main application — UI logic and Spixi event handlers
+// App — thin controller that wires the SDK, subscribes to GameEvents, and exposes
+// the HTML onclick interface (Single Responsibility: orchestration only).
 
 const App = {
-    myAddress: null,
+    myAddress:        null,
     actionCallAmount: 0,
-    chatOpen: false,
 
     init() {
         SpixiAppSdk.onInit = (sessionId, myAddress, ...remoteAddresses) => {
             this.myAddress = myAddress;
             GameProtocol.init(sessionId, myAddress, remoteAddresses);
+            this._subscribeToEvents();
             this.showScreen('lobby');
-            this.renderLobby();
+            LobbyUI.render();
         };
 
         SpixiAppSdk.onNetworkData = (senderAddr, data) => {
@@ -20,451 +21,155 @@ const App = {
         SpixiAppSdk.fireOnLoad();
     },
 
-    // ─── Screen management ───────────────────────────────────────────────────
+    // ── Event subscriptions ───────────────────────────────────────────────────
+
+    _subscribeToEvents() {
+        GameEvents.on('playerJoined', (addr) => {
+            LobbyUI.render();
+            const p     = GameState.players[addr];
+            const label = p?.isBot
+                ? `${p.name} joined as a bot`
+                : `${p?.name || GameState.shortAddr(addr)} joined the table`;
+            LobbyUI.addLog(label);
+        });
+
+        GameEvents.on('lobbyUpdated', () => LobbyUI.render());
+        GameEvents.on('lobbyJoined',  () => LobbyUI.render());
+
+        GameEvents.on('gameStarted', (msg) => {
+            this.showScreen('game');
+            GameUI.updatePot(0);
+            GameUI.renderTable(this.myAddress);
+            GameUI.addLog(`New hand — Dealer: ${GameState.shortAddr(msg.dealer)}`);
+            GameUI.hideActions();
+        });
+
+        GameEvents.on('holeCards', (cards) => {
+            const el = document.getElementById('my-cards');
+            if (!el) return;
+            el.innerHTML = cards.map(c => PokerEngine.cardHTML(c)).join('');
+            el.classList.add('card-deal');
+        });
+
+        GameEvents.on('communityCards', (cards, phase) => {
+            const el = document.getElementById('community-cards');
+            if (el) el.innerHTML = cards.map(c => PokerEngine.cardHTML(c)).join('');
+            GameUI.addLog(`--- ${phase.toUpperCase()} ---`);
+            GameUI.renderTable(this.myAddress);
+        });
+
+        GameEvents.on('actionRequest', (addr, callAmount, pot, roundBet) => {
+            this.actionCallAmount = callAmount;
+            GameUI.updatePot(pot);
+            GameUI.renderTable(this.myAddress);
+
+            if (addr === this.myAddress) {
+                const myStack = GameState.players[this.myAddress]?.stack || 0;
+                GameUI.showActions(callAmount, myStack);
+            } else {
+                GameUI.hideActions();
+            }
+
+            GameUI.renderTable(this.myAddress);
+        });
+
+        GameEvents.on('playerAction', (addr, action, amount) => {
+            const name = GameState.players[addr]?.name || GameState.shortAddr(addr);
+            let msg = `${name}: ${action.toUpperCase()}`;
+            if (amount > 0) msg += ` ${amount}`;
+            GameUI.addLog(msg);
+            GameUI.renderTable(this.myAddress);
+        });
+
+        GameEvents.on('stateUpdate', (state) => {
+            GameUI.updatePot(state.pot);
+            GameUI.renderTable(this.myAddress);
+        });
+
+        GameEvents.on('showdown', (players, communityCards) => {
+            GameUI.addLog('--- SHOWDOWN ---');
+            GameUI.hideActions();
+            GameUI.renderTable(this.myAddress);
+        });
+
+        GameEvents.on('reveal', (addr, cards) => {
+            const name = GameState.players[addr]?.name || GameState.shortAddr(addr);
+            GameUI.addLog(`${name} shows: ${cards.map(c => PokerEngine.cardLabel(c)).join(' ')}`);
+            GameUI.renderTable(this.myAddress);
+        });
+
+        GameEvents.on('result', (winners, pot, hands) => {
+            const winNames = winners.map(a => GameState.players[a]?.name || GameState.shortAddr(a));
+            const share    = Math.floor(pot / winners.length);
+            GameUI.addLog(`🏆 ${winNames.join(' & ')} wins ${share} chips! (${winners.map(w => hands[w]).filter(Boolean).join(', ')})`);
+            GameUI.hideActions();
+            GameUI.renderTable(this.myAddress);
+            GameUI.showResult(winNames.join(' & '), share, winners.map(w => hands[w]).filter(Boolean).join(', '));
+        });
+
+        GameEvents.on('newRound', () => {
+            GameUI.addLog('New round starting…');
+            GameUI.hideResult();
+            document.getElementById('my-cards').innerHTML = '<div class="card face-down">🂠</div><div class="card face-down">🂠</div>';
+            document.getElementById('community-cards').innerHTML = '';
+            GameUI.hideActions();
+            GameUI.updatePot(0);
+        });
+
+        GameEvents.on('chat', (addr, text) => {
+            const name = GameState.players[addr]?.name || GameState.shortAddr(addr);
+            ChatUI.addMessage(name, text);
+        });
+
+        GameEvents.on('playerLeft', (addr, name) => {
+            LobbyUI.addLog(`${name} left the game`);
+            if (GameState.phase !== PHASE.LOBBY) GameUI.renderTable(this.myAddress);
+            else LobbyUI.render();
+        });
+
+        GameEvents.on('gameOver', (winnerAddr) => {
+            const name = winnerAddr
+                ? (GameState.players[winnerAddr]?.name || GameState.shortAddr(winnerAddr))
+                : null;
+            GameUI.hideResult();
+            this.showScreen('lobby');
+            LobbyUI.render();
+            LobbyUI.addLog(name ? `🏆 ${name} wins the game! Starting fresh…` : 'Game over. Starting fresh…');
+        });
+    },
+
+    // ── Screen management ─────────────────────────────────────────────────────
 
     showScreen(name) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById('screen-' + name)?.classList.add('active');
     },
 
-    // ─── Lobby ───────────────────────────────────────────────────────────────
+    // ── HTML onclick interface — delegates to focused modules ─────────────────
 
-    renderLobby() {
-        const list = document.getElementById('lobby-players');
-        if (!list) return;
-
-        const connected = Object.entries(GameProtocol.players);
-        const count = connected.length;
-        const atMax = count >= MAX_PLAYERS;
-
-        // Player list — only live players (sent JOIN)
-        list.innerHTML = '';
-        for (const [addr, p] of connected) {
-            const isMe = addr === GameProtocol.myAddress;
-            const isHost = addr === GameProtocol.hostAddress;
-            const isBot = p.isBot;
-            const li = document.createElement('li');
-            let badges = '';
-            if (isHost) badges += ' <span class="badge badge-host">HOST</span>';
-            if (isMe) badges += ' <span class="badge badge-you">YOU</span>';
-            if (isBot) badges += ' <span class="badge badge-bot">BOT</span>';
-            li.innerHTML = `<span class="player-dot${isBot ? ' bot-dot' : ''}"></span>${p.name}${badges}<span class="chip-count">${p.stack}</span>`;
-            list.appendChild(li);
-        }
-
-        document.getElementById('lobby-count').textContent = `${count} / ${MAX_PLAYERS} players`;
-
-        // Only show host controls once host is confirmed (hostAddress is set)
-        // isHost alone can be true on both devices during the race — wait for tiebreak
-        const hostConfirmed = GameProtocol.hostAddress !== null;
-        const iAmHost = GameProtocol.isHost && hostConfirmed;
-        const hostControls = document.getElementById('host-controls');
-        const guestControls = document.getElementById('guest-controls');
-        if (hostControls) hostControls.style.display = iAmHost ? 'flex' : 'none';
-        if (guestControls) guestControls.style.display = iAmHost ? 'none' : 'flex';
-
-        // Start button — host only, needs ≥2 total (humans + bots)
-        const startBtn = document.getElementById('btn-start');
-        if (startBtn) {
-            const humanCount = Object.values(GameProtocol.players).filter(p => !p.isBot).length;
-            const botCount   = Object.values(GameProtocol.players).filter(p => p.isBot).length;
-            const canStart   = count >= 2;
-            startBtn.disabled = !canStart;
-            if (canStart) {
-                startBtn.textContent = '▶  Start Game';
-            } else if (humanCount === 1 && botCount === 0) {
-                startBtn.textContent = '▶  Add a bot or invite a player';
-            } else {
-                startBtn.textContent = `▶  Need ${2 - count} more player${2 - count !== 1 ? 's' : ''}`;
-            }
-        }
-
-        // Add bot button — host only, not at max
-        const addBotBtn = document.getElementById('btn-add-bot');
-        if (addBotBtn) addBotBtn.disabled = atMax;
-
-        // Invite button — both host and guest, not at max
-        document.querySelectorAll('.btn-invite').forEach(b => {
-            b.disabled = atMax;
-            b.textContent = atMax ? '🚫 Table Full' : '👥 Invite Player';
-        });
-    },
-
-    onPlayerJoined(addr) {
-        this.renderLobby();
-        const p = GameProtocol.players[addr];
-        const label = p?.isBot ? `${p.name} joined as a bot` : `${p?.name || GameProtocol._shortAddr(addr)} joined the table`;
-        this.addLobbyLog(label);
-    },
-
-    addLobbyLog(text) {
-        const el = document.getElementById('lobby-log');
-        if (!el) return;
-        const div = document.createElement('div');
-        div.className = 'lobby-log-entry';
-        div.textContent = text;
-        el.appendChild(div);
-        el.scrollTop = el.scrollHeight;
-    },
-
-    // ─── Invite modal ────────────────────────────────────────────────────────
-
-    showInvite() {
-        const modal = document.getElementById('invite-modal');
-        if (!modal) return;
-        const input = document.getElementById('invite-address');
-        if (input) {
-            input.value = GameProtocol.myAddress || '—';
-        }
-        // Reset copy state
-        const btn = document.getElementById('btn-copy-addr');
-        if (btn) { btn.textContent = 'Copy'; btn.classList.remove('copied'); }
-        const feedback = document.getElementById('invite-copy-feedback');
-        if (feedback) feedback.textContent = '';
-        modal.classList.add('open');
-        // Auto-select address so user can copy manually if clipboard API is unavailable
-        setTimeout(() => input?.select(), 80);
-    },
-
-    closeInvite() {
-        document.getElementById('invite-modal')?.classList.remove('open');
-    },
-
-    copyAddress() {
-        const addr = GameProtocol.myAddress;
-        if (!addr || addr === '—') return;
-
-        const btn = document.getElementById('btn-copy-addr');
-        const feedback = document.getElementById('invite-copy-feedback');
-
-        const onSuccess = () => {
-            if (btn) { btn.textContent = '✓ Done'; btn.classList.add('copied'); }
-            if (feedback) feedback.textContent = '✓ Address copied to clipboard';
-            // Reset after 2.5 s so user can copy again
-            setTimeout(() => {
-                if (btn) { btn.textContent = 'Copy'; btn.classList.remove('copied'); }
-                if (feedback) feedback.textContent = '';
-            }, 2500);
-        };
-
-        const onFail = () => {
-            // Fallback: select the input so the user can copy manually
-            const input = document.getElementById('invite-address');
-            input?.select();
-            if (feedback) feedback.textContent = 'Select all + copy manually';
-        };
-
-        // 1. Modern async clipboard (works in most browsers)
-        if (navigator.clipboard?.writeText) {
-            navigator.clipboard.writeText(addr).then(onSuccess).catch(() => {
-                // 2. execCommand fallback (works in WebViews that block navigator.clipboard)
-                this._execCommandCopy(addr) ? onSuccess() : onFail();
-            });
-        } else {
-            // 2. execCommand fallback directly
-            this._execCommandCopy(addr) ? onSuccess() : onFail();
-        }
-    },
-
-    _execCommandCopy(text) {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
-        ta.setAttribute('readonly', '');
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        let ok = false;
-        try { ok = document.execCommand('copy'); } catch (_) {}
-        document.body.removeChild(ta);
-        return ok;
-    },
-
-    addBot() {
-        GameProtocol.addBot();
-    },
-
-    confirmLeave() {
-        if (confirm('Leave the game? Your remaining chips will go into the pot.')) {
-            GameProtocol.leaveGame();
-        }
-    },
-
-    leaveGame() {
-        GameProtocol.leaveGame();
-    },
-
-    onGameOver(winnerAddr) {
-        const name = winnerAddr
-            ? (GameProtocol.players[winnerAddr]?.name || GameProtocol._shortAddr(winnerAddr))
-            : null;
-        document.getElementById('result-banner')?.classList.remove('show');
-        this.showScreen('lobby');
-        this.renderLobby();
-        this.addLobbyLog(name ? `🏆 ${name} wins the game! Starting fresh…` : 'Game over. Starting fresh…');
-    },
-
-    // ─── Chip rendering ──────────────────────────────────────────────────────
-
-    renderChipStack(amount) {
-        if (!amount || amount <= 0) return '';
-
-        const denoms = [
-            { cls: 'chip-gold',   value: 500 },
-            { cls: 'chip-blue',   value: 100 },
-            { cls: 'chip-purple', value: 25  },
-            { cls: 'chip-green',  value: 5   },
-            { cls: 'chip-white',  value: 1   },
-        ];
-
-        let remaining = amount;
-        let towers = '';
-        const spacing = 7;   // px between chips in a stack
-        const chipH   = 20;  // chip diameter
-
-        for (const d of denoms) {
-            const count = Math.floor(remaining / d.value);
-            if (count < 1) continue;
-
-            const stack = Math.min(count, 6);
-            const towerH = chipH + (stack - 1) * spacing;
-            let discs = '';
-            for (let i = 0; i < stack; i++) {
-                discs += `<div class="chip-disc ${d.cls}" style="bottom:${i * spacing}px"></div>`;
-            }
-            towers += `<div class="chip-tower" style="height:${towerH}px">${discs}</div>`;
-            remaining -= count * d.value;
-            if (remaining <= 0) break;
-        }
-
-        return `<div class="chip-pile">${towers}<span class="chip-pile-label">${amount}</span></div>`;
-    },
-
-    _updatePot(pot) {
-        const text = document.getElementById('pot-text');
-        const chips = document.getElementById('pot-chips');
-        if (text)  text.textContent = `Pot: ${pot}`;
-        if (chips) chips.innerHTML  = pot > 0 ? this.renderChipStack(pot) : '';
-    },
-
-    // ─── Game started ────────────────────────────────────────────────────────
-
-    onGameStarted(msg) {
-        this.showScreen('game');
-        this._updatePot(0);
-        this.renderTable();
-        this.addLog(`New hand — Dealer: ${GameProtocol._shortAddr(msg.dealer)}`);
-        document.getElementById('actions').style.display = 'none';
-    },
-
-    onHoleCards(cards) {
-        const el = document.getElementById('my-cards');
-        if (!el) return;
-        el.innerHTML = cards.map(c => PokerEngine.cardHTML(c)).join('');
-        el.classList.add('card-deal');
-    },
-
-    onCommunityCards(cards, phase) {
-        const el = document.getElementById('community-cards');
-        if (!el) return;
-        el.innerHTML = cards.map(c => PokerEngine.cardHTML(c)).join('');
-        this.addLog(`--- ${phase.toUpperCase()} ---`);
-        this.renderTable();
-    },
-
-    onActionRequest(addr, callAmount, pot, roundBet) {
-        this.actionCallAmount = callAmount;
-        this._updatePot(pot);
-        this.renderTable();
-
-        const isMyTurn = addr === this.myAddress;
-        const actions = document.getElementById('actions');
-        if (!actions) return;
-        actions.style.display = isMyTurn ? 'flex' : 'none';
-
-        if (isMyTurn) {
-            document.getElementById('btn-call').textContent = callAmount > 0 ? `Call ${callAmount}` : 'Check';
-            const myStack = GameProtocol.players[this.myAddress]?.stack || 0;
-            document.getElementById('raise-slider').max = myStack;
-            document.getElementById('raise-slider').value = Math.min(callAmount + BIG_BLIND, myStack);
-            this.updateRaiseDisplay();
-        }
-        this.renderTable();
-    },
-
-    onPlayerAction(addr, action, amount) {
-        const name = GameProtocol.players[addr]?.name || GameProtocol._shortAddr(addr);
-        let msg = `${name}: ${action.toUpperCase()}`;
-        if (amount > 0) msg += ` ${amount}`;
-        this.addLog(msg);
-        this.renderTable();
-    },
-
-    onStateUpdate(state) {
-        this._updatePot(state.pot);
-        this.renderTable();
-    },
-
-    onShowdown(players, communityCards) {
-        this.addLog('--- SHOWDOWN ---');
-        document.getElementById('actions').style.display = 'none';
-        this.renderTable();
-    },
-
-    onReveal(addr, cards) {
-        const name = GameProtocol.players[addr]?.name || GameProtocol._shortAddr(addr);
-        this.addLog(`${name} shows: ${cards.map(c => PokerEngine.cardLabel(c)).join(' ')}`);
-        this.renderTable();
-    },
-
-    onResult(winners, pot, hands) {
-        const winNames = winners.map(a => GameProtocol.players[a]?.name || GameProtocol._shortAddr(a));
-        const share = Math.floor(pot / winners.length);
-        this.addLog(`🏆 ${winNames.join(' & ')} wins ${share} chips! (${winners.map(w => hands[w]).filter(Boolean).join(', ')})`);
-        document.getElementById('actions').style.display = 'none';
-        this.renderTable();
-        this.showResult(winNames.join(' & '), share, winners.map(w => hands[w]).filter(Boolean).join(', '));
-    },
-
-    onNewRound() {
-        this.addLog('New round starting…');
-        document.getElementById('result-banner')?.classList.remove('show');
-        document.getElementById('my-cards').innerHTML = '<div class="card face-down">🂠</div><div class="card face-down">🂠</div>';
-        document.getElementById('community-cards').innerHTML = '';
-        document.getElementById('actions').style.display = 'none';
-        this._updatePot(0);
-    },
-
-    onChat(addr, text) {
-        const name = GameProtocol.players[addr]?.name || GameProtocol._shortAddr(addr);
-        this.addChatMessage(name, text);
-    },
-
-    // ─── Table rendering ─────────────────────────────────────────────────────
-
-    renderTable() {
-        const container = document.getElementById('player-seats');
-        if (!container) return;
-        container.innerHTML = '';
-
-        const others = Object.keys(GameProtocol.players).filter(a => a !== this.myAddress);
-        const total = others.length;
-
-        others.forEach((addr, i) => {
-            const p = GameProtocol.players[addr];
-            // Arc opponents across the top of the oval; spread widens with more players.
-            // All angles are in the upper half of the unit circle (sin < 0 in CSS coords)
-            // so y stays within the visible area.
-            const spread = Math.min(Math.PI * 0.8, Math.PI * (0.4 + (total - 1) * 0.2));
-            const startAngle = -Math.PI / 2 - spread / 2;
-            const angle = total <= 1
-                ? -Math.PI / 2
-                : startAngle + (i / (total - 1)) * spread;
-            const x = 50 + 42 * Math.cos(angle);
-            const y = 30 + 22 * Math.sin(angle);
-
-            const seat = document.createElement('div');
-            seat.className = 'seat'
-                + (p.folded ? ' folded' : '')
-                + (addr === GameProtocol.currentTurnAddr ? ' active-seat' : '');
-            seat.style.left = `${x}%`;
-            seat.style.top = `${y}%`;
-
-            const isHost = addr === GameProtocol.hostAddress;
-            const cards = GameProtocol.revealedHands[addr]
-                ? GameProtocol.revealedHands[addr].map(c => PokerEngine.cardHTML(c)).join('')
-                : (!p.folded ? '<div class="card face-down sm">🂠</div><div class="card face-down sm">🂠</div>' : '');
-
-            seat.innerHTML = `
-                <div class="seat-cards">${cards}</div>
-                <div class="seat-info">
-                    <div class="seat-name">${p.name}${isHost ? ' 👑' : ''}${p.isBot ? ' 🤖' : ''}</div>
-                    <div class="seat-stack">${p.stack}</div>
-                    ${p.folded ? '<div class="folded-label">FOLDED</div>' : ''}
-                    ${p.allIn ? '<div class="allin-label">ALL IN</div>' : ''}
-                </div>
-                ${p.bet > 0 ? `<div class="seat-bet-chips">${this.renderChipStack(p.bet)}</div>` : ''}`;
-            container.appendChild(seat);
-        });
-
-        const myBet   = GameProtocol.players[this.myAddress]?.bet   || 0;
-        const myStack = GameProtocol.players[this.myAddress]?.stack || 0;
-
-        const myInfo = document.getElementById('my-info');
-        if (myInfo) myInfo.textContent = `${myStack} chips`;
-
-        const myBetChips = document.getElementById('my-bet-chips');
-        if (myBetChips) myBetChips.innerHTML = myBet > 0 ? this.renderChipStack(myBet) : '';
-
-        // Always keep hole cards in sync with GameProtocol state.
-        // This guards against any render call that might leave #my-cards stale.
-        const myCardsEl = document.getElementById('my-cards');
-        if (myCardsEl && GameProtocol.myHoleCards.length > 0) {
-            myCardsEl.innerHTML = GameProtocol.myHoleCards.map(c => PokerEngine.cardHTML(c)).join('');
-        }
-    },
-
-    showResult(winner, amount, handName) {
-        const banner = document.getElementById('result-banner');
-        if (!banner) return;
-        banner.innerHTML = `<div class="result-inner">🏆 ${winner}<br><small>wins ${amount} chips</small>${handName ? `<br><small>${handName}</small>` : ''}</div>`;
-        banner.classList.add('show');
-    },
-
-    // ─── Actions ─────────────────────────────────────────────────────────────
-
-    fold()  { GameProtocol.sendAction(ACTION.FOLD);  document.getElementById('actions').style.display = 'none'; },
-    check() { GameProtocol.sendAction(ACTION.CHECK); document.getElementById('actions').style.display = 'none'; },
-    call()  { GameProtocol.sendAction(ACTION.CALL, this.actionCallAmount); document.getElementById('actions').style.display = 'none'; },
+    fold()  { GameProtocol.sendAction(ACTION.FOLD);                             GameUI.hideActions(); },
+    check() { GameProtocol.sendAction(ACTION.CHECK);                            GameUI.hideActions(); },
+    call()  { GameProtocol.sendAction(ACTION.CALL,  this.actionCallAmount);     GameUI.hideActions(); },
     raise() {
         const amount = parseInt(document.getElementById('raise-slider').value, 10);
         GameProtocol.sendAction(ACTION.RAISE, amount);
-        document.getElementById('actions').style.display = 'none';
+        GameUI.hideActions();
     },
-    allIn() { GameProtocol.sendAction(ACTION.ALL_IN); document.getElementById('actions').style.display = 'none'; },
+    allIn() { GameProtocol.sendAction(ACTION.ALL_IN);                           GameUI.hideActions(); },
 
-    updateRaiseDisplay() {
-        const slider = document.getElementById('raise-slider');
-        const display = document.getElementById('raise-amount');
-        if (slider && display) display.textContent = slider.value;
-    },
+    updateRaiseDisplay() { GameUI.updateRaiseDisplay(); },
 
-    // ─── Chat ────────────────────────────────────────────────────────────────
+    joinLobby()    { GameProtocol.joinLobby(); },
+    addBot()       { GameProtocol.addBot(); },
+    confirmLeave() { if (confirm('Leave the game? Your remaining chips will go into the pot.')) GameProtocol.leaveGame(); },
+    leaveGame()    { GameProtocol.leaveGame(); },
 
-    toggleChat() {
-        this.chatOpen = !this.chatOpen;
-        document.getElementById('chat-panel').classList.toggle('open', this.chatOpen);
-    },
+    showInvite()  { LobbyUI.showInvite(); },
+    closeInvite() { LobbyUI.closeInvite(); },
+    copyAddress() { LobbyUI.copyAddress(); },
 
-    sendChat() {
-        const input = document.getElementById('chat-input');
-        if (!input || !input.value.trim()) return;
-        GameProtocol.sendChat(input.value.trim());
-        this.addChatMessage('You', input.value.trim());
-        input.value = '';
-    },
-
-    addChatMessage(name, text) {
-        const log = document.getElementById('chat-log');
-        if (!log) return;
-        const div = document.createElement('div');
-        div.className = 'chat-msg';
-        div.innerHTML = `<b>${name}:</b> ${text}`;
-        log.appendChild(div);
-        log.scrollTop = log.scrollHeight;
-        document.getElementById('btn-chat')?.classList.add('flash');
-        setTimeout(() => document.getElementById('btn-chat')?.classList.remove('flash'), 1000);
-    },
-
-    addLog(text) {
-        const log = document.getElementById('game-log');
-        if (!log) return;
-        const div = document.createElement('div');
-        div.className = 'log-entry';
-        div.textContent = text;
-        log.appendChild(div);
-        log.scrollTop = log.scrollHeight;
-    }
+    toggleChat() { ChatUI.toggle(); },
+    sendChat()   { ChatUI.send(); }
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());

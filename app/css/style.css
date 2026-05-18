@@ -746,10 +746,10 @@ html, body {
 /* ── Chat ─────────────────────────────────────────────────────────────── */
 #chat-panel {
     position: absolute;
-    right: 0; top: 0; bottom: 0;
-    width: 220px;
+    inset: 0;
+    width: 100%;
     background: var(--bg2);
-    border-left: 1px solid var(--border-dim);
+    border-left: none;
     display: flex;
     flex-direction: column;
     transform: translateX(100%);
@@ -945,6 +945,30 @@ html, body {
 
 /* ── Safe area for phones ─────────────────────────────────────────────── */
 .my-area { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+
+/* ── Join banner ──────────────────────────────────────────────────────── */
+.join-banner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 28px 24px;
+    margin: 0 0 16px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-align: center;
+}
+.join-banner-msg {
+    color: var(--text-mid);
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+.btn-join-table {
+    font-size: 1rem;
+    padding: 14px 40px;
+    letter-spacing: 0.04em;
+}
 
 /* ── Tablet / landscape ───────────────────────────────────────────────── */
 @media (min-width: 500px) {
