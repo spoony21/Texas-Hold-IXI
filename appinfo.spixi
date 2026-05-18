@@ -1,8 +1,8 @@
 caVersion = 0
-id = com.spixem.texasholdem
+id = com.spoony.texasholdixi
 publisher = spoony
 name = Texas Hold IXI
-version = 1.0.4
+version = 1.1.0
 capabilities = multiUser
-minUsers = 2
+minUsers = 1
 maxUsers = 6

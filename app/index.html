@@ -18,7 +18,13 @@
     <div class="lobby-logo">
         <div class="lobby-logo-icon">♠</div>
         <div class="lobby-title">Texas <span>Hold'IXI</span></div>
-        <div class="lobby-subtitle">Built on Ixian · Powered by Spixi</div>
+        <div class="lobby-subtitle">Powered by Spixi</div>
+    </div>
+
+    <!-- Join banner — shown until the player explicitly joins the table -->
+    <div id="join-banner" class="join-banner">
+        <p class="join-banner-msg">You've been invited to play Texas Hold'IXI</p>
+        <button class="btn-primary btn-join-table" onclick="App.joinLobby()">Join Table</button>
     </div>
 
     <div class="lobby-card">
@@ -149,13 +155,30 @@
     <div id="result-banner"></div>
 </div>
 
-<!-- Scripts: load order matters -->
+<!-- Scripts: load order reflects dependency graph -->
+<!-- 1. SDK + utilities (no dependencies) -->
 <script src="js/spixi-app-sdk.js"></script>
 <script src="js/spixi-tools.js"></script>
 <script src="js/poker-engine.js"></script>
+<!-- 2. Cross-cutting infrastructure -->
+<script src="js/event-emitter.js"></script>
+<!-- 3. Shared state (constants + GameState) -->
+<script src="js/game-state.js"></script>
+<!-- 4. Pure-logic game modules (depend on GameState only) -->
+<script src="js/betting-rules.js"></script>
+<script src="js/host-election.js"></script>
+<script src="js/bot-ai.js"></script>
+<script src="js/game-flow.js"></script>
+<script src="js/message-handlers.js"></script>
+<!-- 5. Network orchestrator (depends on all game modules) -->
 <script src="js/game-protocol.js"></script>
+<!-- 6. UI modules (depend on GameState + GameEvents) -->
+<script src="js/lobby-ui.js"></script>
+<script src="js/game-ui.js"></script>
+<script src="js/chat-ui.js"></script>
+<!-- 7. App controller (wires SDK + events + HTML interface) -->
 <script src="js/app.js"></script>
-<!-- Mock SDK must come after game-protocol so it can call GameProtocol -->
+<!-- 8. Mock SDK must come last so it can call GameProtocol -->
 <script src="js/mock-sdk.js"></script>
 
 </body>
