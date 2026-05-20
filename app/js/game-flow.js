@@ -188,7 +188,6 @@ const GameFlow = {
         for (const addr of Object.keys(GameState.players)) {
             if (GameState.players[addr].stack <= 0) {
                 delete GameState.players[addr];
-                GameState.allAddresses = GameState.allAddresses.filter(a => a !== addr);
             }
         }
 
