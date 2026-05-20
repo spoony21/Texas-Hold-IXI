@@ -6,9 +6,12 @@ const App = {
     actionCallAmount: 0,
 
     init() {
-        SpixiAppSdk.onInit = (sessionId, myAddress, ...remoteAddresses) => {
+        // We intentionally ignore remoteAddresses from onInit — the Spixi platform
+        // may list contacts who haven't opened the app yet. Peer discovery is
+        // handled via broadcast JOIN heartbeats inside GameProtocol.
+        SpixiAppSdk.onInit = (sessionId, myAddress) => {
             this.myAddress = myAddress;
-            GameProtocol.init(sessionId, myAddress, remoteAddresses);
+            GameProtocol.init(sessionId, myAddress);
             this._subscribeToEvents();
             this.showScreen('lobby');
             LobbyUI.render();
@@ -34,7 +37,6 @@ const App = {
         });
 
         GameEvents.on('lobbyUpdated', () => LobbyUI.render());
-        GameEvents.on('lobbyJoined',  () => LobbyUI.render());
 
         GameEvents.on('gameStarted', (msg) => {
             this.showScreen('game');
@@ -159,7 +161,6 @@ const App = {
 
     updateRaiseDisplay() { GameUI.updateRaiseDisplay(); },
 
-    joinLobby()    { GameProtocol.joinLobby(); },
     addBot()       { GameProtocol.addBot(); },
     confirmLeave() { if (confirm('Leave the game? Your remaining chips will go into the pot.')) GameProtocol.leaveGame(); },
     leaveGame()    { GameProtocol.leaveGame(); },

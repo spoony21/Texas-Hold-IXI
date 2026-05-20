@@ -1,24 +1,19 @@
-// Host election — determines which peer acts as game master (Single Responsibility).
-// Earliest joinedAt wins; ties broken by lexicographically lower address.
-
+// Host election — deterministic, no clocks involved.
+// The host is the lexicographically smallest human address in the lobby.
+// Both peers agree on the same result without needing synchronised time.
 const HostElection = {
     elect() {
-        let bestAddr = null, bestTime = Infinity;
+        if (GameState.phase !== PHASE.LOBBY) return;
 
-        for (const [addr, p] of Object.entries(GameState.players)) {
-            if (p.isBot) continue;
-            const t = p.joinedAt ?? Infinity;
-            if (t < bestTime || (t === bestTime && (bestAddr === null || addr < bestAddr))) {
-                bestTime = t;
-                bestAddr = addr;
-            }
-        }
+        const humans = Object.keys(GameState.players)
+            .filter(a => !GameState.players[a].isBot)
+            .sort();
 
-        if (!bestAddr) return;
+        const hostAddr = humans[0] || GameState.myAddress;
 
-        if (bestAddr !== GameState.hostAddress) {
-            GameState.hostAddress = bestAddr;
-            GameState.isHost      = (bestAddr === GameState.myAddress);
+        if (hostAddr !== GameState.hostAddress) {
+            GameState.hostAddress = hostAddr;
+            GameState.isHost      = (hostAddr === GameState.myAddress);
             GameEvents.emit('lobbyUpdated');
         }
     }

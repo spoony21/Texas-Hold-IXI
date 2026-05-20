@@ -21,12 +21,6 @@
         <div class="lobby-subtitle">Powered by Spixi</div>
     </div>
 
-    <!-- Join banner — shown until the player explicitly joins the table -->
-    <div id="join-banner" class="join-banner">
-        <p class="join-banner-msg">You've been invited to play Texas Hold'IXI</p>
-        <button class="btn-primary btn-join-table" onclick="App.joinLobby()">Join Table</button>
-    </div>
-
     <div class="lobby-card">
         <div class="lobby-card-header">
             <h3>At the table</h3>
@@ -36,17 +30,12 @@
         <div id="lobby-log"></div>
     </div>
 
-    <!-- Host controls -->
-    <div id="host-controls" class="lobby-actions" style="display:none">
+    <!-- Lobby controls — host (deterministically elected) gets Start & Add Bot; others see a waiting message -->
+    <div id="lobby-controls" class="lobby-actions" style="display:none">
         <button id="btn-add-bot" class="btn-secondary" onclick="App.addBot()">🤖 Add Bot</button>
         <button class="btn-secondary btn-invite" onclick="App.showInvite()">👥 Invite Player</button>
         <button id="btn-start" class="btn-primary" onclick="GameProtocol.startGame()">▶  Start Game</button>
-    </div>
-
-    <!-- Guest controls -->
-    <div id="guest-controls" class="lobby-actions" style="display:none">
-        <button class="btn-secondary btn-invite" onclick="App.showInvite()">👥 Invite Player</button>
-        <p class="wait-msg">Waiting for host to start…</p>
+        <p id="wait-host-msg" class="wait-msg" style="display:none">Waiting for host to start…</p>
     </div>
 </div>
 

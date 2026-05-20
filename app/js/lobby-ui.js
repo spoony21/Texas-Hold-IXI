@@ -6,30 +6,17 @@ const LobbyUI = {
         const list = document.getElementById('lobby-players');
         if (!list) return;
 
-        const joinBanner    = document.getElementById('join-banner');
-        const hostControls  = document.getElementById('host-controls');
-        const guestControls = document.getElementById('guest-controls');
-
-        // Show join prompt until the player explicitly confirms — hide normal controls.
-        if (joinBanner) joinBanner.style.display = GameState.hasJoinedLobby ? 'none' : 'flex';
-
-        if (!GameState.hasJoinedLobby) {
-            if (hostControls)  hostControls.style.display  = 'none';
-            if (guestControls) guestControls.style.display = 'none';
-            return;
-        }
-
-        const entries  = Object.entries(GameState.players);
-        const count    = entries.length;
-        const atMax    = count >= MAX_PLAYERS;
+        const entries = Object.entries(GameState.players);
+        const count   = entries.length;
+        const atMax   = count >= MAX_PLAYERS;
 
         list.innerHTML = '';
         for (const [addr, p] of entries) {
             const isMe   = addr === GameState.myAddress;
             const isHost = addr === GameState.hostAddress;
             let badges   = '';
-            if (isHost) badges += ' <span class="badge badge-host">HOST</span>';
-            if (isMe)   badges += ' <span class="badge badge-you">YOU</span>';
+            if (isHost)  badges += ' <span class="badge badge-host">HOST</span>';
+            if (isMe)    badges += ' <span class="badge badge-you">YOU</span>';
             if (p.isBot) badges += ' <span class="badge badge-bot">BOT</span>';
             const li = document.createElement('li');
             li.innerHTML = `<span class="player-dot${p.isBot ? ' bot-dot' : ''}"></span>${p.name}${badges}<span class="chip-count">${p.stack}</span>`;
@@ -38,30 +25,38 @@ const LobbyUI = {
 
         document.getElementById('lobby-count').textContent = `${count} / ${MAX_PLAYERS} players`;
 
-        const hostConfirmed = GameState.hostAddress !== null;
-        const iAmHost       = GameState.isHost && hostConfirmed;
+        const controls = document.getElementById('lobby-controls');
+        if (controls) controls.style.display = 'flex';
 
-        if (hostControls)  hostControls.style.display  = iAmHost ? 'flex' : 'none';
-        if (guestControls) guestControls.style.display = iAmHost ? 'none' : 'flex';
-
+        const iAmHost  = GameState.isHost;
         const startBtn = document.getElementById('btn-start');
+        const addBotBtn = document.getElementById('btn-add-bot');
+        const waitMsg  = document.getElementById('wait-host-msg');
+
         if (startBtn) {
-            const humanCount = Object.values(GameState.players).filter(p => !p.isBot).length;
-            const botCount   = Object.values(GameState.players).filter(p => p.isBot).length;
-            const canStart   = count >= 2;
-            startBtn.disabled = !canStart;
-            if (canStart) {
-                startBtn.textContent = '▶  Start Game';
-            } else if (humanCount === 1 && botCount === 0) {
-                startBtn.textContent = '▶  Add a bot or invite a player';
-            } else {
-                const need = 2 - count;
-                startBtn.textContent = `▶  Need ${need} more player${need !== 1 ? 's' : ''}`;
+            startBtn.style.display = iAmHost ? '' : 'none';
+            if (iAmHost) {
+                const humanCount = Object.values(GameState.players).filter(p => !p.isBot).length;
+                const botCount   = Object.values(GameState.players).filter(p => p.isBot).length;
+                const canStart   = count >= 2;
+                startBtn.disabled = !canStart;
+                if (canStart) {
+                    startBtn.textContent = '▶  Start Game';
+                } else if (humanCount === 1 && botCount === 0) {
+                    startBtn.textContent = '▶  Waiting for players…';
+                } else {
+                    const need = 2 - count;
+                    startBtn.textContent = `▶  Need ${need} more`;
+                }
             }
         }
 
-        const addBotBtn = document.getElementById('btn-add-bot');
-        if (addBotBtn) addBotBtn.disabled = atMax;
+        if (addBotBtn) {
+            addBotBtn.style.display = iAmHost ? '' : 'none';
+            addBotBtn.disabled = atMax;
+        }
+
+        if (waitMsg) waitMsg.style.display = iAmHost ? 'none' : '';
 
         document.querySelectorAll('.btn-invite').forEach(b => {
             b.disabled   = atMax;

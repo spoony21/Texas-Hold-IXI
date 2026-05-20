@@ -1,15 +1,12 @@
 // Message handler registry — Open/Closed Principle.
 // New message types are added by registering a new handler here, not by editing GameProtocol.
 // Each handler receives (senderAddr, msg) and may mutate GameState, call GameFlow,
-// run HostElection, or emit GameEvents. No direct UI calls.
+// or emit GameEvents. No direct UI calls.
 
 const MessageHandlers = {
     [MSG.JOIN](sender, msg) {
         if (msg.address === GameState.myAddress) return;
-
-        if (!GameState.allAddresses.includes(msg.address)) {
-            GameState.allAddresses.push(msg.address);
-        }
+        if (GameState.phase !== PHASE.LOBBY) return;
 
         const isNew = !GameState.players[msg.address];
         if (isNew) {
@@ -17,23 +14,20 @@ const MessageHandlers = {
                 name: msg.name || GameState.shortAddr(msg.address),
                 stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
                 seatIndex: Object.keys(GameState.players).length,
-                connected: true, isBot: false,
-                joinedAt: msg.joinedAt ?? null
+                connected: true, isBot: false
             };
             GameEvents.emit('playerJoined', msg.address);
 
-            // Reply immediately so the joining peer sees us without waiting for the next heartbeat
+            // Reply once so the joining peer sees us without waiting for the next heartbeat
             GameProtocol._send({
                 type: MSG.JOIN,
                 address: GameState.myAddress,
-                name: GameState.players[GameState.myAddress]?.name,
-                joinedAt: GameState.joinedAt
+                name: GameState.players[GameState.myAddress]?.name
             });
-        } else if (msg.joinedAt && !GameState.players[msg.address].joinedAt) {
-            GameState.players[msg.address].joinedAt = msg.joinedAt;
         }
 
         HostElection.elect();
+        GameEvents.emit('lobbyUpdated');
     },
 
     [MSG.BOT_ADD](sender, msg) {
@@ -44,9 +38,6 @@ const MessageHandlers = {
                 seatIndex: Object.keys(GameState.players).length,
                 connected: true, isBot: true
             };
-        }
-        if (!GameState.allAddresses.includes(msg.address)) {
-            GameState.allAddresses.push(msg.address);
         }
         GameEvents.emit('playerJoined', msg.address);
     },
@@ -70,7 +61,6 @@ const MessageHandlers = {
                     seatIndex: Object.keys(GameState.players).length,
                     connected: true, isBot: addr.startsWith('bot:')
                 };
-                if (!GameState.allAddresses.includes(addr)) GameState.allAddresses.push(addr);
             } else {
                 GameState.players[addr].stack  = msg.stacks[addr];
                 GameState.players[addr].bet    = msg.bets[addr] || 0;
@@ -83,7 +73,7 @@ const MessageHandlers = {
     },
 
     [MSG.HOLE_CARDS](sender, msg) {
-        if (sender === GameState.hostAddress || GameState.allAddresses.includes(sender)) {
+        if (sender === GameState.hostAddress) {
             GameState.myHoleCards = msg.cards;
             GameEvents.emit('holeCards', msg.cards);
         }
@@ -156,7 +146,6 @@ const MessageHandlers = {
             leaver.folded  = true;
         }
         delete GameState.players[msg.address];
-        GameState.allAddresses = GameState.allAddresses.filter(a => a !== msg.address);
         HostElection.elect();
 
         if (GameState.isHost && GameState.phase !== PHASE.LOBBY) {
@@ -199,13 +188,14 @@ const MessageHandlers = {
             GameState.players[GameState.myAddress] = {
                 name: GameState.shortAddr(GameState.myAddress),
                 stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
-                seatIndex: 0, connected: true, isBot: false,
-                joinedAt: GameState.joinedAt
+                seatIndex: 0, connected: true, isBot: false
             };
         }
 
+        GameState.isHost      = false;
+        GameState.hostAddress = null;
+        GameProtocol._startLobbyBroadcast();
         HostElection.elect();
-        GameProtocol._restartLobbyHeartbeat();
         GameEvents.emit('gameOver', msg.winner);
     }
 };

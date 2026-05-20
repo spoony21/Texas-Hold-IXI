@@ -3,32 +3,25 @@
 // Internal helpers: _broadcast, _send, _restartLobbyHeartbeat.
 
 const GameProtocol = {
-    init(sessionId, myAddress, remoteAddresses) {
-        GameState.sessionId    = sessionId;
-        GameState.myAddress    = myAddress;
-        GameState.joinedAt     = Date.now();
-        GameState.allAddresses = [myAddress, ...remoteAddresses];
+    // Initialise the session. Note: remoteAddresses from onInit are intentionally
+    // IGNORED — the Spixi platform may list contacts who haven't opened the app yet.
+    // Peers are discovered purely through broadcast JOIN heartbeats, so only
+    // actually-online players ever appear in the lobby.
+    init(sessionId, myAddress) {
+        GameState.sessionId = sessionId;
+        GameState.myAddress = myAddress;
 
         GameState.players[myAddress] = {
             name: GameState.shortAddr(myAddress),
             stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
-            seatIndex: 0, connected: true, isBot: false,
-            joinedAt: GameState.joinedAt
+            seatIndex: 0, connected: true, isBot: false
         };
 
-        GameState.isHost      = true;
-        GameState.hostAddress = myAddress;
-        // Do NOT start the heartbeat here — wait for the player to explicitly join
-        // so we never appear in another player's lobby before they've confirmed.
-    },
+        GameState.isHost      = false;
+        GameState.hostAddress = null;
 
-    // Called when the player clicks "Join Table". Starts the JOIN heartbeat
-    // and makes this client visible to everyone else in the session.
-    joinLobby() {
-        if (GameState.hasJoinedLobby) return;
-        GameState.hasJoinedLobby = true;
-        this._restartLobbyHeartbeat();
-        GameEvents.emit('lobbyJoined');
+        this._startLobbyBroadcast();
+        HostElection.elect();  // Self is the only player, so self becomes host
     },
 
     startGame() {
@@ -88,18 +81,20 @@ const GameProtocol = {
         SpixiAppSdk.sendNetworkData(JSON.stringify(msg));
     },
 
-    _restartLobbyHeartbeat() {
+    // Announce my presence to the session every 2s while in the lobby.
+    // Mirrors Starwind Arena's lobbyJoin pattern. Peers are added to the
+    // lobby only after their JOIN message arrives — never speculatively.
+    _startLobbyBroadcast() {
         clearInterval(GameState._lobbyInterval);
         const sendJoin = () => this._send({
             type: MSG.JOIN,
             address: GameState.myAddress,
-            name: GameState.players[GameState.myAddress]?.name,
-            joinedAt: GameState.joinedAt
+            name: GameState.players[GameState.myAddress]?.name
         });
         sendJoin();
         GameState._lobbyInterval = setInterval(() => {
             if (GameState.phase === PHASE.LOBBY) { sendJoin(); }
             else { clearInterval(GameState._lobbyInterval); GameState._lobbyInterval = null; }
-        }, 3000);
+        }, 2000);
     }
 };
