@@ -4,26 +4,37 @@
 // or emit GameEvents. No direct UI calls.
 
 const MessageHandlers = {
+    // Peer identity comes from the SDK-authenticated `sender` arg, NOT msg.address.
+    // This is the key Starwind pattern — only real broadcasters get into the lobby.
     [MSG.JOIN](sender, msg) {
-        if (msg.address === GameState.myAddress) return;
+        if (sender === GameState.myAddress) return;
         if (GameState.phase !== PHASE.LOBBY) return;
 
-        const isNew = !GameState.players[msg.address];
+        const now = Date.now();
+        const isNew = !GameState.players[sender];
+
         if (isNew) {
-            GameState.players[msg.address] = {
-                name: msg.name || GameState.shortAddr(msg.address),
+            GameState.players[sender] = {
+                name: msg.name || GameState.shortAddr(sender),
                 stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
                 seatIndex: Object.keys(GameState.players).length,
-                connected: true, isBot: false
+                connected: true, isBot: false,
+                joinedAt:  msg.joinedAt ?? now,
+                lastSeenAt: now
             };
-            GameEvents.emit('playerJoined', msg.address);
+            GameEvents.emit('playerJoined', sender);
 
             // Reply once so the joining peer sees us without waiting for the next heartbeat
             GameProtocol._send({
                 type: MSG.JOIN,
-                address: GameState.myAddress,
+                joinedAt: GameState.joinedAt,
                 name: GameState.players[GameState.myAddress]?.name
             });
+        } else {
+            GameState.players[sender].lastSeenAt = now;
+            if (msg.joinedAt != null && GameState.players[sender].joinedAt == null) {
+                GameState.players[sender].joinedAt = msg.joinedAt;
+            }
         }
 
         HostElection.elect();
@@ -188,7 +199,9 @@ const MessageHandlers = {
             GameState.players[GameState.myAddress] = {
                 name: GameState.shortAddr(GameState.myAddress),
                 stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
-                seatIndex: 0, connected: true, isBot: false
+                seatIndex: 0, connected: true, isBot: false,
+                joinedAt: GameState.joinedAt,
+                lastSeenAt: Date.now()
             };
         }
 

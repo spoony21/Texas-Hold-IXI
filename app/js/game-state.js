@@ -24,15 +24,17 @@ const GameState = {
     // Session identity
     myAddress:    null,
     sessionId:    null,
+    joinedAt:     null,   // local Date.now() at startup — used for first-joiner host election
 
-    // Host tracking — set when someone clicks "Start Game" (no pre-election)
+    // Host tracking
     isHost:      false,
     hostAddress: null,
-    _lobbyInterval: null,
+    _lobbyInterval:   null,
+    _cleanupInterval: null,
 
     // Round state
     phase:          PHASE.LOBBY,
-    players:        {},   // addr -> { name, stack, bet, folded, allIn, seatIndex, connected, isBot }
+    players:        {},   // addr -> { name, stack, bet, folded, allIn, seatIndex, connected, isBot, joinedAt, lastSeenAt }
     dealerIndex:    0,
     pot:            0,
     communityCards: [],
