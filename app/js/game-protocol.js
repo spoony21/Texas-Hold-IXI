@@ -10,18 +10,22 @@ const GameProtocol = {
     init(sessionId, myAddress) {
         GameState.sessionId = sessionId;
         GameState.myAddress = myAddress;
+        GameState.joinedAt  = Date.now();
 
         GameState.players[myAddress] = {
             name: GameState.shortAddr(myAddress),
             stack: STARTING_STACK, bet: 0, folded: false, allIn: false,
-            seatIndex: 0, connected: true, isBot: false
+            seatIndex: 0, connected: true, isBot: false,
+            joinedAt: GameState.joinedAt,
+            lastSeenAt: Date.now()
         };
 
         GameState.isHost      = false;
         GameState.hostAddress = null;
 
         this._startLobbyBroadcast();
-        HostElection.elect();  // Self is the only player, so self becomes host
+        this._startPeerCleanup();
+        HostElection.elect();  // Solo case: I become host immediately
     },
 
     startGame() {
@@ -66,6 +70,9 @@ const GameProtocol = {
     handleMessage(senderAddr, data) {
         let msg;
         try { msg = JSON.parse(data); } catch { return; }
+        // Update liveness on every inbound message (Starwind pattern).
+        const peer = GameState.players[senderAddr];
+        if (peer) peer.lastSeenAt = Date.now();
         const handler = MessageHandlers[msg.type];
         if (handler) handler.call(MessageHandlers, senderAddr, msg);
     },
@@ -82,19 +89,43 @@ const GameProtocol = {
     },
 
     // Announce my presence to the session every 2s while in the lobby.
-    // Mirrors Starwind Arena's lobbyJoin pattern. Peers are added to the
-    // lobby only after their JOIN message arrives — never speculatively.
+    // Mirrors Starwind Arena's lobbyJoin pattern. Peers are identified by the
+    // SDK-authenticated senderAddress on the receiving side — never by msg.address —
+    // so phantom JOINs spoofing other identities can't slip in.
     _startLobbyBroadcast() {
         clearInterval(GameState._lobbyInterval);
         const sendJoin = () => this._send({
             type: MSG.JOIN,
-            address: GameState.myAddress,
+            joinedAt: GameState.joinedAt,
             name: GameState.players[GameState.myAddress]?.name
         });
         sendJoin();
         GameState._lobbyInterval = setInterval(() => {
             if (GameState.phase === PHASE.LOBBY) { sendJoin(); }
             else { clearInterval(GameState._lobbyInterval); GameState._lobbyInterval = null; }
+        }, 2000);
+    },
+
+    // Remove peers that stop broadcasting. Without this, a stale JOIN from a
+    // disconnected/phantom peer (e.g. left over from a previous Spixi session)
+    // would stick in the lobby forever and could wrongly win host election.
+    _startPeerCleanup() {
+        clearInterval(GameState._cleanupInterval);
+        GameState._cleanupInterval = setInterval(() => {
+            if (GameState.phase !== PHASE.LOBBY) return;
+            const now = Date.now();
+            let changed = false;
+            for (const [addr, p] of Object.entries(GameState.players)) {
+                if (addr === GameState.myAddress || p.isBot) continue;
+                if (p.lastSeenAt && now - p.lastSeenAt > 6000) {
+                    delete GameState.players[addr];
+                    changed = true;
+                }
+            }
+            if (changed) {
+                HostElection.elect();
+                GameEvents.emit('lobbyUpdated');
+            }
         }, 2000);
     }
 };
